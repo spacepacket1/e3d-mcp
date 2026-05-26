@@ -1,5 +1,7 @@
 # E3D.ai MCP Server
 
+[![smithery badge](https://smithery.ai/badge/spacepacket/e3d-ai)](https://smithery.ai/servers/spacepacket/e3d-ai)
+
 MCP server that exposes the [E3D.ai](https://e3d.ai) blockchain analytics and AI agent platform as tools for Claude.
 
 ## Tools
@@ -72,6 +74,26 @@ You should see:
 ```
 e3d-ai: node /path/to/e3d-mcp/server.js - ✓ Connected
 ```
+
+## Register with Claude Desktop
+
+Add to your `claude_desktop_config.json` (found at `~/Library/Application Support/Claude/` on macOS):
+
+```json
+{
+  "mcpServers": {
+    "e3d-ai": {
+      "command": "node",
+      "args": ["/path/to/e3d-mcp/server.js"],
+      "env": {
+        "E3D_API_KEY": "your_key_here"
+      }
+    }
+  }
+}
+```
+
+Omit the `env` block to run anonymously. Restart Claude Desktop after saving.
 
 ## Updating the API key
 
