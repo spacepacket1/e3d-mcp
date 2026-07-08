@@ -30,6 +30,11 @@ MCP server that exposes the [E3D.ai](https://e3d.ai) blockchain analytics and AI
 | `get_agent_executions` | Execution run history with status and burn per run |
 | `get_agent_strategies` | Configured strategies: enabled state, approval mode, burn caps |
 | `get_agent_budget_policy` | Budget policy: daily/weekly burn caps, hibernate threshold |
+| `get_token_metadata` | Full token profile including registry claim status (claimed/unclaimed, proof method, owner-authored metadata) |
+| `search_registry_tokens` | Public directory of claimed tokens — search, filter by chain, incremental sync via `updatedSince` |
+| `get_wallet_claims` | List claims held by a wallet (requires a wallet-proof `sessionToken`) |
+| `claim_token` | Claim an indexed token with owner-authored metadata; requires a paid on-chain fee tx and a `sessionToken` |
+| `update_token_claim` | Edit an existing claim's website/description/contact/socials using its scoped `apiKey` |
 
 ## Requirements
 
