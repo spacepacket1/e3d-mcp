@@ -123,6 +123,10 @@ List all running E3D agents and their E3D balances.
 What is the next planned action for the E3D token agent?
 ```
 
+## Examples
+
+- [`examples/claim-token.js`](examples/claim-token.js) — runnable, end-to-end example of the token-registry claim flow against the live API (the same endpoints `claim_token`/`get_wallet_claims` wrap). Supports a fully-automated mode (given a private key, for disposable/test wallets) and an agent-safe mode (given a pre-obtained `sessionToken` + `feeTxHash` — e.g. from signing/paying via MetaMask yourself — so no private key ever touches the script). See the file header for usage; `node examples/claim-token.js --check-fee` is a safe, read-only way to see current pricing.
+
 ## API tiers
 
 | Tier | Daily limit | Min interval |
