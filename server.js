@@ -455,20 +455,24 @@ server.tool(
 server.tool(
   "claim_token",
   "Claim an already-indexed token: attach owner-authored metadata and get a scoped API key " +
-  "to update it later. Requires a sessionToken (see get_wallet_claims) and a feeTxHash from an " +
-  "already-confirmed on-chain fee payment (1 E3D on Ethereum or 1 wE3D on Base — confirm the " +
-  "live amount via GET /api/payments/products first; this tool does not send the payment). " +
-  "proofMethod: use owner_call or deployer if the wallet actually controls the contract " +
-  "(stronger, can supersede a weaker existing claim) or signature otherwise. Returns a " +
-  "long-lived apiKey shown only once — store it, there is no recovery.",
+  "to update it later. Requires a sessionToken (see get_wallet_claims) proving the *claiming* " +
+  "wallet actually controls the contract, and a feeTxHash from an already-confirmed on-chain " +
+  "fee payment (1 E3D on Ethereum or 1 wE3D on Base — confirm the live amount via " +
+  "GET /api/payments/products first; this tool does not send the payment). The fee payment " +
+  "does NOT have to come from the claiming wallet — pay it from any wallet (e.g. this agent's " +
+  "own treasury) and pass the resulting tx hash here; only the sessionToken/wallet pairing has " +
+  "to match the contract's owner()/deployer. proofMethod must be owner_call or deployer — " +
+  "signature-only proof is rejected outright (403 PROOF_METHOD_NOT_ALLOWED), and omitting " +
+  "proofMethod is rejected too (400 PROOF_METHOD_REQUIRED). Returns a long-lived apiKey shown " +
+  "only once — store it, there is no recovery.",
   {
     address:       z.string().describe("Token contract address to claim (0x...)"),
-    sessionToken:  z.string().describe("Bearer sessionToken from the entitlements challenge/verify flow"),
-    wallet:        z.string().describe("Claimant wallet address (0x...)"),
+    sessionToken:  z.string().describe("Bearer sessionToken from the entitlements challenge/verify flow, proving control of `wallet`"),
+    wallet:        z.string().describe("Claimant wallet address (0x...) — must match owner() or the contract's deployer"),
     chain:         z.string().default("ethereum").describe("Chain of the token being claimed"),
-    feeTxHash:     z.string().describe("Transaction hash of the confirmed claim-fee payment. Single-use — cannot back more than one successful claim"),
-    paymentMethod: z.string().optional().describe("e.g. ethereum-e3d or base-we3d — must match the chain actually paid on"),
-    proofMethod:   z.enum(["signature", "deployer", "owner_call"]).default("signature"),
+    feeTxHash:     z.string().describe("Transaction hash of the confirmed claim-fee payment, from any wallet. Single-use — cannot back more than one successful claim"),
+    paymentMethod: z.string().optional().describe("e.g. ethereum-e3d or base-we3d — must match the chain the fee was actually paid on"),
+    proofMethod:   z.enum(["deployer", "owner_call"]).describe("Required. Must reflect actual on-chain control — signature-only proof is not accepted"),
     website:       z.string().optional(),
     description:   z.string().optional(),
     contact:       z.string().optional(),
