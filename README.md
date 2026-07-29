@@ -42,20 +42,12 @@ MCP server that exposes the [E3D.ai](https://e3d.ai) blockchain analytics and AI
 - A Claude Code installation (`claude` CLI)
 - An E3D.ai API key *(optional — works anonymously at the free tier)*
 
-## Installation
+## Zero-Install Setup
+
+The primary setup path uses the published `e3d-mcp` package through `npx -y e3d-mcp`. The `-y` flag lets `npx` fetch the package without an interactive install confirmation, and these commands require the package to have already been published to npm. This repository change prepares that workflow; publishing itself remains a separate npm release step.
 
 ```bash
-git clone https://github.com/spacepacket1/e3d-mcp.git
-cd e3d-mcp
-npm install
-```
-
-## Register with Claude Code
-
-### Without an API key (anonymous, free tier)
-
-```bash
-claude mcp add e3d-ai --scope user -- node /path/to/e3d-mcp/server.js
+claude mcp add e3d-ai --scope user -- npx -y e3d-mcp
 ```
 
 ### With an API key
@@ -63,7 +55,7 @@ claude mcp add e3d-ai --scope user -- node /path/to/e3d-mcp/server.js
 Get your key from [e3d.ai/api](https://e3d.ai/api) after signing in.
 
 ```bash
-claude mcp add e3d-ai -e E3D_API_KEY=your_key_here --scope user -- node /path/to/e3d-mcp/server.js
+claude mcp add e3d-ai -e E3D_API_KEY=your_key_here --scope user -- npx -y e3d-mcp
 ```
 
 > **`--scope user`** installs the server for all Claude Code sessions on your machine. Use `--scope project` instead to restrict it to a single project.
@@ -77,7 +69,23 @@ claude mcp list
 You should see:
 
 ```
-e3d-ai: node /path/to/e3d-mcp/server.js - ✓ Connected
+e3d-ai: npx -y e3d-mcp - ✓ Connected
+```
+
+## Source Installation
+
+Use this workflow if you are contributing to the repository or prefer to run from a local clone.
+
+```bash
+git clone https://github.com/spacepacket1/e3d-mcp.git
+cd e3d-mcp
+npm install
+```
+
+### Register from source
+
+```bash
+claude mcp add e3d-ai --scope user -- node /path/to/e3d-mcp/server.js
 ```
 
 ## Register with Claude Desktop
@@ -88,8 +96,8 @@ Add to your `claude_desktop_config.json` (found at `~/Library/Application Suppor
 {
   "mcpServers": {
     "e3d-ai": {
-      "command": "node",
-      "args": ["/path/to/e3d-mcp/server.js"],
+      "command": "npx",
+      "args": ["-y", "e3d-mcp"],
       "env": {
         "E3D_API_KEY": "your_key_here"
       }
@@ -104,7 +112,7 @@ Omit the `env` block to run anonymously. Restart Claude Desktop after saving.
 
 ```bash
 claude mcp remove e3d-ai
-claude mcp add e3d-ai -e E3D_API_KEY=your_new_key --scope user -- node /path/to/e3d-mcp/server.js
+claude mcp add e3d-ai -e E3D_API_KEY=your_new_key --scope user -- npx -y e3d-mcp
 ```
 
 ## Usage with Claude
