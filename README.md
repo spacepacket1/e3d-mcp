@@ -35,6 +35,11 @@ MCP server that exposes the [E3D.ai](https://e3d.ai) blockchain analytics and AI
 | `get_wallet_claims` | List claims held by a wallet (requires a wallet-proof `sessionToken`) |
 | `claim_token` | Claim an indexed token with owner-authored metadata; requires a paid on-chain fee tx and a `sessionToken` |
 | `update_token_claim` | Edit an existing claim's website/description/contact/socials using its scoped `apiKey` |
+| `get_macro_snapshot` | Latest LiquidityWatch U.S. Financial Stress Score evaluation: headline score, regime, phase, risk/liquidity indicators, subscores, asset triggers, drivers, classification blocks |
+| `get_macro_history` | Up to 365 past LiquidityWatch evaluations — headline score, phase, risk indicators, subscores, newest-first |
+| `get_macro_causal_graph` | Current stress-propagation causal graph snapshot — nodes, edges, and any pipeline-proposed-but-unpromoted additions |
+
+The three `get_macro_*` tools are read-only wrappers around `GET https://e3d.ai/api/financial-stress-monitor` and its `/history` sibling — the same public data [liquiditywatch.e3d.ai](https://liquiditywatch.e3d.ai) renders. See [`lib/financial-stress-monitor.js`](lib/financial-stress-monitor.js) for the exact shaping rules (schema_version normalization, the risk-metric methodology caveat, why `newsletter_body_html` is never included).
 
 ## Requirements
 
@@ -107,6 +112,74 @@ claude mcp remove e3d-ai
 claude mcp add e3d-ai -e E3D_API_KEY=your_new_key --scope user -- node /path/to/e3d-mcp/server.js
 ```
 
+## Connect from ChatGPT (remote HTTP)
+
+`server.js` above is stdio-only — a client spawns it as a local process,
+which Claude Code/Desktop can do but ChatGPT cannot (it can only reach a
+public HTTPS endpoint). `server-http.js` is a second, minimal entry point
+that exposes the same three `get_macro_*` tools — and *only* those three,
+deliberately, not the full tool set — over MCP's Streamable HTTP transport.
+See the file's header comment for why it's scoped down like that.
+
+1. It's already deployed and live at **`https://liquiditywatch.e3d.ai/mcp`**
+   (see "Remote HTTP server" below for how). Mounted on the LiquidityWatch
+   domain rather than a new subdomain since this data *is* LiquidityWatch's
+   — that avoided provisioning new DNS entirely.
+2. In ChatGPT: **Settings → Connectors → Advanced → Developer mode** (or
+   **Create connector**, naming varies by plan), then add a custom
+   connector with that URL. No auth is required for this server.
+3. ChatGPT will list `get_macro_snapshot`, `get_macro_history`, and
+   `get_macro_causal_graph`. Enable them for a chat and ask things like
+   *"What's the current LiquidityWatch financial stress score?"*
+
+MCP connectors require a paid ChatGPT plan (Plus/Pro/Business/Enterprise/Edu)
+— not available on the free tier. Also usable from any other MCP client that
+speaks Streamable HTTP (Claude.ai's own remote-connector support, for
+example) by pointing it at the same URL.
+
+## Remote HTTP server
+
+**Live in production** on this host as PM2 app `e3d-mcp-http`, reverse-proxied
+by nginx at `https://liquiditywatch.e3d.ai/mcp` (Cloudflare-proxied domain,
+cert already provisioned via Certbot — no new DNS record was needed since it
+piggybacks on the existing `liquiditywatch.e3d.ai` domain rather than a new
+subdomain).
+
+```bash
+node server-http.js
+# or, for the production process manager this host already uses elsewhere:
+pm2 start ecosystem.config.cjs
+pm2 save   # persist across reboots — pm2-ubuntu.service resurrects from this on boot
+```
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MCP_HTTP_HOST` | `127.0.0.1` | Bind address |
+| `MCP_HTTP_PORT` | `3010` | Bind port |
+| `MCP_HTTP_ALLOWED_HOSTS` | `liquiditywatch.e3d.ai` (set in `ecosystem.config.cjs`) | Comma-separated `Host` headers to accept — **required** once this sits behind a reverse proxy at a real hostname |
+
+This binds to loopback and expects a reverse proxy in front of it
+terminating TLS and forwarding a real hostname to `127.0.0.1:3010` — see the
+`location = /mcp` block in the `liquiditywatch.e3d.ai` server block of
+`/etc/nginx/sites-enabled/default` on this host. `MCP_HTTP_ALLOWED_HOSTS`
+must match whatever hostname the proxy forwards, or the SDK's own
+DNS-rebinding protection rejects the request (it otherwise only accepts
+`Host: localhost`/`127.0.0.1`/`::1`) — confirmed by testing: a bare loopback
+curl with no Host override gets a 403 `Invalid Host`, while
+`curl -H "Host: liquiditywatch.e3d.ai" http://127.0.0.1:3010/health` and the
+real public HTTPS endpoint both return `{"ok":true}`. Health check:
+`GET /health` → `{"ok":true}` (via the loopback port only — not proxied
+publicly, since nginx's `location = /mcp` is an exact-match on that one path).
+
+To redeploy on a different host or under a different hostname, update
+`MCP_HTTP_ALLOWED_HOSTS` in `ecosystem.config.cjs` and the nginx proxy target
+together — they have to agree.
+
+This is intentionally a *separate* process from the stdio server — it never
+gains the token-registry write tools (`claim_token`, `update_token_claim`,
+etc.), by construction, not by configuration. Don't add write-capable tools
+to `server-http.js` without adding real request auth first.
+
 ## Usage with Claude
 
 Once registered the tools are available in every Claude Code session automatically. Example prompts:
@@ -142,3 +215,21 @@ What is the next planned action for the E3D token agent?
 |---|---|
 | `E3D_API_KEY` | Your E3D.ai API key (optional) |
 | `E3D_API_BASE_URL` | Override the API base URL (default: `https://e3d.ai/api`) |
+| `MCP_HTTP_HOST` | `server-http.js` bind address (default `127.0.0.1`) |
+| `MCP_HTTP_PORT` | `server-http.js` bind port (default `3010`) |
+| `MCP_HTTP_ALLOWED_HOSTS` | `server-http.js` accepted `Host` headers, comma-separated (see "Remote HTTP server") |
+
+## Tests
+
+```bash
+npm install
+npm test                                    # unit tests only - no network
+E3D_MCP_LIVE_TESTS=1 npm test                # also runs the live-API integration test
+```
+
+`test/e3d-api.test.js` covers the HTTP layer (non-2xx, malformed/non-JSON
+bodies, unreachable hosts) against a real local mock server.
+`test/financial-stress-monitor.test.js` covers the `get_macro_*` shaping
+rules (schema_version normalization, null/missing-field handling) as pure
+functions. `test/live-financial-stress-monitor.test.js` is opt-in and hits
+the real `https://e3d.ai/api`.
