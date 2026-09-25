@@ -6,7 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { apiRequest, apiFetch } from '../lib/e3d-api.js';
+import { apiRequest, apiFetch, clearApiCache } from '../lib/e3d-api.js';
 
 async function startMockServer(handler) {
   const server = http.createServer(handler);
@@ -86,6 +86,94 @@ test('apiFetch: a malformed non-JSON body on a non-2xx status still throws', asy
 test('apiFetch: an unreachable host rejects rather than hanging', async () => {
   // Port 1 is a reserved/typically-closed port - connection refused, fast.
   await assert.rejects(() => apiFetch('/financial-stress-monitor', {}, { baseUrl: 'http://127.0.0.1:1' }));
+});
+
+test('apiFetch: repeated calls within the TTL are served from cache, not refetched', async () => {
+  clearApiCache();
+  let hits = 0;
+  const { server, baseUrl } = await startMockServer((req, res) => {
+    hits += 1;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ event: { final_score: hits } })); // changes each real hit, so a cache hit is observable
+  });
+  try {
+    const first = await apiFetch('/financial-stress-monitor', {}, { baseUrl, cacheTtlMs: 5_000 });
+    const second = await apiFetch('/financial-stress-monitor', {}, { baseUrl, cacheTtlMs: 5_000 });
+    assert.equal(hits, 1);
+    assert.equal(first.event.final_score, second.event.final_score);
+  } finally {
+    server.close();
+  }
+});
+
+test('apiFetch: cacheTtlMs: 0 disables caching entirely', async () => {
+  clearApiCache();
+  let hits = 0;
+  const { server, baseUrl } = await startMockServer((req, res) => {
+    hits += 1;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ n: hits }));
+  });
+  try {
+    await apiFetch('/financial-stress-monitor', {}, { baseUrl, cacheTtlMs: 0 });
+    await apiFetch('/financial-stress-monitor', {}, { baseUrl, cacheTtlMs: 0 });
+    assert.equal(hits, 2);
+  } finally {
+    server.close();
+  }
+});
+
+test('apiFetch: cache expires after its TTL - a later call refetches', async () => {
+  clearApiCache();
+  let hits = 0;
+  const { server, baseUrl } = await startMockServer((req, res) => {
+    hits += 1;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ n: hits }));
+  });
+  try {
+    await apiFetch('/financial-stress-monitor', {}, { baseUrl, cacheTtlMs: 10 });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    await apiFetch('/financial-stress-monitor', {}, { baseUrl, cacheTtlMs: 10 });
+    assert.equal(hits, 2);
+  } finally {
+    server.close();
+  }
+});
+
+test('apiFetch: a failed request is never cached (no repeating a transient failure)', async () => {
+  clearApiCache();
+  let hits = 0;
+  const { server, baseUrl } = await startMockServer((req, res) => {
+    hits += 1;
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'down' }));
+  });
+  try {
+    await assert.rejects(() => apiFetch('/financial-stress-monitor', {}, { baseUrl, cacheTtlMs: 5_000 }));
+    await assert.rejects(() => apiFetch('/financial-stress-monitor', {}, { baseUrl, cacheTtlMs: 5_000 }));
+    assert.equal(hits, 2); // both hit the server - neither was served from a cached failure
+  } finally {
+    server.close();
+  }
+});
+
+test('apiRequest: a slow upstream is aborted after timeoutMs rather than hanging', async () => {
+  let pendingTimer;
+  const { server, baseUrl } = await startMockServer((req, res) => {
+    // responds well after the 50ms timeout below, but still bounded so the
+    // test itself can't hang if something goes wrong
+    pendingTimer = setTimeout(() => { try { res.end('{}'); } catch { /* client already gone */ } }, 200);
+  });
+  try {
+    await assert.rejects(
+      () => apiRequest('GET', '/financial-stress-monitor', { baseUrl, timeoutMs: 50 }),
+      /timed out after 50ms/,
+    );
+  } finally {
+    clearTimeout(pendingTimer);
+    server.close();
+  }
 });
 
 test('apiRequest: bearer token and JSON body are sent for a write-shaped call', async () => {

@@ -157,6 +157,11 @@ pm2 save   # persist across reboots — pm2-ubuntu.service resurrects from this 
 | `MCP_HTTP_HOST` | `127.0.0.1` | Bind address |
 | `MCP_HTTP_PORT` | `3010` | Bind port |
 | `MCP_HTTP_ALLOWED_HOSTS` | `liquiditywatch.e3d.ai` (set in `ecosystem.config.cjs`) | Comma-separated `Host` headers to accept — **required** once this sits behind a reverse proxy at a real hostname |
+| `MCP_HTTP_RATE_LIMIT_MAX` | `60` | Max `/mcp` requests per IP per window (`/health` is exempt) |
+| `MCP_HTTP_RATE_LIMIT_WINDOW_MS` | `60000` | Rate-limit window |
+| `OPENAI_APPS_CHALLENGE_TOKEN` | *(unset)* | Served verbatim at `/.well-known/openai-apps-challenge` for OpenAI's plugin domain-verification step (see `docs/public-plugin/SUBMISSION.md` in `e3d-liquiditywatch`); unset ⇒ 404 |
+| `E3D_API_TIMEOUT_MS` | `10000` | Abort an upstream `e3d.ai` request after this long |
+| `E3D_API_CACHE_TTL_MS` | `30000` | In-memory GET response cache TTL — the underlying evaluation only changes ~once/cycle, so repeated tool calls within this window don't refetch |
 
 This binds to loopback and expects a reverse proxy in front of it
 terminating TLS and forwarding a real hostname to `127.0.0.1:3010` — see the
@@ -179,6 +184,17 @@ This is intentionally a *separate* process from the stdio server — it never
 gains the token-registry write tools (`claim_token`, `update_token_claim`,
 etc.), by construction, not by configuration. Don't add write-capable tools
 to `server-http.js` without adding real request auth first.
+
+**Public-plugin hardening** (see `docs/public-plugin/SECURITY.md` in
+`e3d-liquiditywatch` for the full audit): request timeout and a short
+response cache (`lib/e3d-api.js`), rate limiting on `/mcp` via
+`express-rate-limit` (`lib/http-app.js` — note `app.set("trust proxy", 1)`,
+required for correct per-IP keying behind nginx), minimal access logging, and
+`readOnlyHint`/`destructiveHint`/`openWorldHint` tool annotations
+(`lib/financial-stress-monitor.js`, shared with the stdio server so they
+can't drift). `server-http.js` itself is now a thin bootstrap around
+`lib/http-app.js`'s `createApp()`, which is what `test/http-app.test.js`
+exercises directly.
 
 ## Usage with Claude
 
@@ -228,8 +244,12 @@ E3D_MCP_LIVE_TESTS=1 npm test                # also runs the live-API integratio
 ```
 
 `test/e3d-api.test.js` covers the HTTP layer (non-2xx, malformed/non-JSON
-bodies, unreachable hosts) against a real local mock server.
-`test/financial-stress-monitor.test.js` covers the `get_macro_*` shaping
-rules (schema_version normalization, null/missing-field handling) as pure
-functions. `test/live-financial-stress-monitor.test.js` is opt-in and hits
-the real `https://e3d.ai/api`.
+bodies, unreachable hosts, timeouts, caching) against a real local mock
+server. `test/financial-stress-monitor.test.js` covers the `get_macro_*`
+shaping rules (schema_version normalization, null/missing-field handling) as
+pure functions. `test/http-app.test.js` boots `lib/http-app.js`'s
+`createApp()` on an ephemeral port and drives it with a real MCP client over
+Streamable HTTP — tool discovery/annotations/execution, invalid-argument
+handling, DNS-rebinding host validation, rate limiting, and the
+domain-verification route. `test/live-financial-stress-monitor.test.js` is
+opt-in and hits the real `https://e3d.ai/api`.

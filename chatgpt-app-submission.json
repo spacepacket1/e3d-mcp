@@ -1,0 +1,116 @@
+{
+  "$schema": "https://developers.openai.com/apps-sdk/schemas/chatgpt-app-submission.v1.json",
+  "schema_version": 1,
+  "app_info": {
+    "display_name": "LiquidityWatch",
+    "subtitle": "Macro financial stress data",
+    "description": "LiquidityWatch provides access to E3D's macroeconomic intelligence platform through ChatGPT. Explore current financial stress conditions, Treasury and funding markets, Federal Reserve policy, energy-market developments, global liquidity, and cryptocurrency implications. Retrieve historical financial stress evaluations, examine how sub-indicators (Treasury stress, funding stress, Fed/Treasury response, AI economic impulse, energy stress, global liquidity) have changed over time, and, when available, explore the causal relationships connecting macroeconomic developments to financial-market conditions. LiquidityWatch distinguishes three tiers of information in everything it reports: observed facts (each with a source), analytical interpretation, and explicitly lower-confidence speculation. Informational only: LiquidityWatch does not provide financial or investment advice, guaranteed forecasts, or independently verified probabilities. Its headline score and risk indicators are produced by an AI research/critique/synthesis pipeline and reflect that pipeline's analytical judgment, not calibrated statistical forecasts.",
+    "category": "FINANCE"
+  },
+  "tools": {
+    "get_macro_snapshot": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only retrieves the latest published financial stress evaluation from a public API and returns it; never creates, updates, or deletes anything.",
+        "open_world_justification": "Reads from e3d.ai's public API, an external third-party system, but never writes to it or to any other external system.",
+        "destructive_justification": "Performs no delete, overwrite, or irreversible action of any kind."
+      }
+    },
+    "get_macro_history": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only retrieves up to 365 past evaluations from a public API and returns them; never modifies any data.",
+        "open_world_justification": "Reads from e3d.ai's public API, an external third-party system, but never writes to it.",
+        "destructive_justification": "Performs no delete, overwrite, or irreversible action of any kind."
+      }
+    },
+    "get_macro_causal_graph": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only retrieves the current causal-graph snapshot from a public API, if one has been published, and returns it unchanged.",
+        "open_world_justification": "Reads from e3d.ai's public API, an external third-party system, but never writes to it.",
+        "destructive_justification": "Performs no delete, overwrite, or irreversible action of any kind."
+      }
+    }
+  },
+  "test_cases": [
+    {
+      "description": "Retrieve the current U.S. financial stress score and its key drivers.",
+      "user_prompt": "What's the current U.S. financial stress score, and what's driving it?",
+      "file_attachment_urls": null,
+      "tools_triggered": "get_macro_snapshot",
+      "expected_output": "Returns the latest published headline score (0-100), its previous value, current regime/phase, and a list of drivers behind the current reading.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Retrieve recent historical evaluations to show how the score has trended.",
+      "user_prompt": "How has the financial stress score changed over the last 10 evaluations?",
+      "file_attachment_urls": null,
+      "tools_triggered": "get_macro_history",
+      "expected_output": "Returns up to 10 newest-first historical evaluations, each with a timestamp and headline score.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Surface the current Fed/Treasury policy phase from the latest evaluation.",
+      "user_prompt": "What phase is the Fed's policy response in right now?",
+      "file_attachment_urls": null,
+      "tools_triggered": "get_macro_snapshot",
+      "expected_output": "Returns the phase field from the latest evaluation with a plain-language explanation of what that phase represents.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Surface the sub-engine breakdown behind the headline score.",
+      "user_prompt": "What's the breakdown of what's contributing to the current stress score — Treasury markets, funding, energy, etc.?",
+      "file_attachment_urls": null,
+      "tools_triggered": "get_macro_snapshot",
+      "expected_output": "Returns the six sub-engine scores (Treasury stress, funding stress, Fed/Treasury response, AI economic impulse, energy stress, global liquidity) from the latest evaluation.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Attempt to retrieve the causal graph, demonstrating graceful handling when it has not yet been populated upstream.",
+      "user_prompt": "Is there a causal graph showing how these economic factors relate to each other?",
+      "file_attachment_urls": null,
+      "tools_triggered": "get_macro_causal_graph",
+      "expected_output": "Returns the causal-graph snapshot if the upstream pipeline has published one, or a clear structured message indicating it is not yet available for the current evaluation cycle.",
+      "expected_output_url": null
+    }
+  ],
+  "negative_test_cases": [
+    {
+      "description": "Do not attempt a trade or transaction based on the score — no such capability exists on this server.",
+      "user_prompt": "Buy Bitcoin based on the current LiquidityWatch score.",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "The app should decline or ask for clarification, since none of its tools can execute a trade, transfer, or any transaction.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Do not fabricate personalized financial data the server has no way to retrieve.",
+      "user_prompt": "What's my personal portfolio's risk based on my brokerage account?",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "The app should decline or ask for clarification, since no tool accepts account credentials or personal holdings as input.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Do not trigger for a nearby-but-out-of-scope financial-data request this server doesn't provide.",
+      "user_prompt": "What's the latest stock price for Apple?",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "The app should not be invoked — it provides macro financial-stress evaluations, not individual equity price quotes.",
+      "expected_output_url": null
+    }
+  ]
+}

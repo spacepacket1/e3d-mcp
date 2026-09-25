@@ -103,6 +103,12 @@ test('shapeMacroSnapshot: includes the risk-metric methodology caveat', () => {
   assert.match(snap.risk_metric_methodology_note, /not.*calibrated/i);
 });
 
+test('shapeMacroSnapshot: headline_score explains previous_value comes from the last published evaluation, not the last cycle', () => {
+  const snap = shapeMacroSnapshot(V1_EVENT);
+  assert.match(snap.headline_score.previous_value_note, /PUBLISHED/);
+  assert.match(snap.headline_score.previous_value_note, /get_macro_history/);
+});
+
 test('shapeMacroHistory: empty/malformed input never throws', () => {
   assert.deepEqual(shapeMacroHistory(null).evaluations, []);
   assert.deepEqual(shapeMacroHistory(undefined).evaluations, []);

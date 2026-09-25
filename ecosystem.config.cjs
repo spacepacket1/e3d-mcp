@@ -24,11 +24,20 @@ module.exports = {
       instances: 1,
       autorestart: true,
       watch: false,
+      max_memory_restart: '200M', // safety net for public traffic - restart rather than degrade
       env: {
         NODE_ENV: 'production',
         MCP_HTTP_HOST: '127.0.0.1',
         MCP_HTTP_PORT: 3010,
         MCP_HTTP_ALLOWED_HOSTS: 'liquiditywatch.e3d.ai', // matches the nginx `location = /mcp` proxy on that domain
+        MCP_HTTP_RATE_LIMIT_MAX: 60, // per IP, per window - see lib/http-app.js
+        MCP_HTTP_RATE_LIMIT_WINDOW_MS: 60000,
+        E3D_API_CACHE_TTL_MS: 30000, // short in-memory cache in lib/e3d-api.js - the upstream evaluation only changes ~daily
+        E3D_API_TIMEOUT_MS: 10000,
+        // Set to the real token from the OpenAI developer portal's domain-verification
+        // step before public submission - see docs/public-plugin/SUBMISSION.md. Empty
+        // = /.well-known/openai-apps-challenge returns 404 (inert, no submission pending).
+        OPENAI_APPS_CHALLENGE_TOKEN: '',
       },
     },
   ],
