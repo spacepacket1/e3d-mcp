@@ -51,7 +51,7 @@
       "user_prompt": "What's the current U.S. financial stress score, and what's driving it?",
       "file_attachment_urls": null,
       "tools_triggered": "get_macro_snapshot",
-      "expected_output": "Returns the latest published headline score (0-100), its previous value, current regime/phase, and a list of drivers behind the current reading.",
+      "expected_output": "Returns the latest published headline score (0-100), its previous value, current regime/phase, and a list of drivers behind the current reading. Note: the previous value reflects the last PUBLISHED evaluation (one judged materially different), which can differ from the most recent entry in get_macro_history since that tool returns every stored daily cycle, not just published ones — the response itself explains this via headline_score.previous_value_note.",
       "expected_output_url": null
     },
     {
@@ -59,7 +59,7 @@
       "user_prompt": "How has the financial stress score changed over the last 10 evaluations?",
       "file_attachment_urls": null,
       "tools_triggered": "get_macro_history",
-      "expected_output": "Returns up to 10 newest-first historical evaluations, each with a timestamp and headline score.",
+      "expected_output": "Returns up to 10 newest-first historical evaluations, each with a timestamp and headline score. Note: this includes every stored daily evaluation cycle, not just the ones judged material enough to publish — so its second-newest entry's score won't always match get_macro_snapshot's previous_value, which tracks only the last published evaluation. This is intentional, not a data inconsistency.",
       "expected_output_url": null
     },
     {
