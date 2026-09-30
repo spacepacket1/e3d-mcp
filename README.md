@@ -137,6 +137,84 @@ MCP connectors require a paid ChatGPT plan (Plus/Pro/Business/Enterprise/Edu)
 speaks Streamable HTTP (Claude.ai's own remote-connector support, for
 example) by pointing it at the same URL.
 
+## Remote MCP server for ChatGPT (full read-only E3D tools)
+
+`server-remote.js` serves the read-only E3D tools over Streamable HTTP at
+**`https://mcp.e3d.ai/mcp`** (PM2 app `e3d-mcp-remote`, `127.0.0.1:3011`
+behind nginx). It is separate from `server.js` (stdio, unchanged) and from
+`server-http.js` (LiquidityWatch-only on `liquiditywatch.e3d.ai`, unchanged).
+All three read from the same tool definitions in
+[`lib/read-tools.js`](lib/read-tools.js).
+
+**Exposed (16 tools, all annotated `readOnlyHint: true`):** `get_tokens`,
+`get_token_prices`, `get_token_info`, `get_token_info_json`,
+`get_token_metadata`, `search_registry_tokens`, `get_transactions`,
+`get_address_meta`, `get_token_counterparties`, `get_address_counterparties`,
+`search_stories`, `get_theses`, `get_agent_candidates`, `get_macro_snapshot`,
+`get_macro_history`, `get_macro_causal_graph`.
+
+**Not exposed (stdio only):** `claim_token`, `update_token_claim`,
+`get_wallet_claims` (write-capable / wallet-scoped) and the agent
+treasury/operations tools (`get_agent_funding`, `get_agent_burns`,
+`get_agent_strategies`, `get_agent_budget_policy`, `get_agent_executions`,
+…). They are not registered on this server, so no request can reach them.
+
+### Authentication and limits
+
+- The server holds **no E3D credential**. A caller may send their own E3D API
+  key as `Authorization: Bearer <key>` (or `x-api-key`); it is forwarded
+  upstream per request, so e3d.ai applies *that key's* tier, entitlements and
+  quotas (see "API tiers"). Callers without a key use the anonymous tier.
+  `E3D_API_KEY` is ignored by this process on purpose.
+- `MCP_REMOTE_REQUIRE_AUTH=true` makes keyless requests fail with `401`.
+- Local rate limit (default 120 req/min) is additive to e3d.ai's and keyed by
+  API key when present, else by client IP. Note ChatGPT traffic egresses from
+  a small set of OpenAI IPs, so anonymous users share one bucket — a reason to
+  prefer keyed access or raise `MCP_REMOTE_RATE_LIMIT_MAX` for public use.
+- Limits: 25 s per tool call (10 s per upstream request), 512 KB per tool
+  response, 256 KB request body, bounded argument lengths/ranges.
+- Errors come back as MCP tool errors (`isError: true`) with
+  `structuredContent.error = { code, message, retryable, ... }`, codes:
+  `unauthorized`, `forbidden`, `not_found`, `rate_limited`, `upstream_timeout`,
+  `upstream_error`, `bad_request`, `response_too_large`, `internal_error`.
+  Upstream response bodies are never forwarded.
+- Logs: one JSON line per HTTP request and per tool call (request id, status,
+  latency, tool name, error code). Credentials, tool arguments and payloads are
+  never logged.
+
+### Connecting ChatGPT
+
+1. A paid ChatGPT plan with MCP connectors is required (Plus/Pro/Business/
+   Enterprise/Edu; naming varies by plan).
+2. **Settings → Connectors → Advanced → enable Developer mode**, then
+   **Create connector** (name it e.g. "E3D").
+3. **MCP server URL:** `https://mcp.e3d.ai/mcp`. Authentication: **No
+   authentication** for the anonymous tier. ChatGPT's connector UI decides
+   which auth schemes it offers; E3D API keys are static bearer keys, not
+   OAuth, so if your plan has no API-key/bearer option, anonymous is the
+   only way to use this connector from ChatGPT.
+4. Save; ChatGPT lists the 16 tools. Enable them in a chat (Developer mode →
+   select the connector) and try: *"Use E3D to look up the address
+   0x4a220e6096b25eadb88358cb44068a3248254675 (QNT)."*
+5. Other clients: any Streamable-HTTP MCP client, e.g.
+   `claude mcp add --transport http e3d-remote https://mcp.e3d.ai/mcp --header "Authorization: Bearer $E3D_API_KEY"`.
+
+**QNT note.** QNT (Quant) resolves by address through `get_address_meta`,
+`get_token_metadata`, `get_token_counterparties`, `get_address_counterparties`
+and `get_transactions`. At the time of writing e3d.ai's `fetchTokensDB` does
+not index it by symbol/address (`get_tokens search=QNT` returns QNTU and
+QNT-named pool tokens) and `token-info/<QNT address>` returns an upstream 500 —
+those are upstream data gaps, not MCP-layer issues.
+
+### Deployment (PM2 + nginx)
+
+Follows the `e3d-mcp-http` conventions: `pm2 start ecosystem.config.cjs --only
+e3d-mcp-remote`, then add the `mcp.e3d.ai` server block from
+[`deploy/nginx-mcp.e3d.ai.conf`](deploy/nginx-mcp.e3d.ai.conf) (DNS record →
+port-80 block → `certbot --nginx -d mcp.e3d.ai` → `location` blocks).
+`MCP_REMOTE_ALLOWED_HOSTS` must equal the nginx `server_name`. Smoke test:
+`curl https://mcp.e3d.ai/health`, then list tools with any MCP client.
+
 ## Remote HTTP server
 
 **Live in production** on this host as PM2 app `e3d-mcp-http`, reverse-proxied
@@ -156,6 +234,11 @@ pm2 save   # persist across reboots — pm2-ubuntu.service resurrects from this 
 |---|---|---|
 | `MCP_HTTP_HOST` | `127.0.0.1` | Bind address |
 | `MCP_HTTP_PORT` | `3010` | Bind port |
+| `MCP_REMOTE_HOST` / `MCP_REMOTE_PORT` | `server-remote.js` bind address / port (default `127.0.0.1` / `3011`) |
+| `MCP_REMOTE_ALLOWED_HOSTS` | `server-remote.js` accepted `Host` headers (production: `mcp.e3d.ai`) |
+| `MCP_REMOTE_REQUIRE_AUTH` | `true` = require a caller-supplied E3D API key (default `false`) |
+| `MCP_REMOTE_RATE_LIMIT_MAX` / `_WINDOW_MS` | `server-remote.js` per-key/per-IP limit (default `120` / `60000`) |
+| `MCP_REMOTE_TOOL_TIMEOUT_MS` | `server-remote.js` per-tool-call cap (default `25000`) |
 | `MCP_HTTP_ALLOWED_HOSTS` | `liquiditywatch.e3d.ai` (set in `ecosystem.config.cjs`) | Comma-separated `Host` headers to accept — **required** once this sits behind a reverse proxy at a real hostname |
 | `MCP_HTTP_RATE_LIMIT_MAX` | `60` | Max `/mcp` requests per IP per window (`/health` is exempt) |
 | `MCP_HTTP_RATE_LIMIT_WINDOW_MS` | `60000` | Rate-limit window |
@@ -251,5 +334,9 @@ pure functions. `test/http-app.test.js` boots `lib/http-app.js`'s
 `createApp()` on an ephemeral port and drives it with a real MCP client over
 Streamable HTTP — tool discovery/annotations/execution, invalid-argument
 handling, DNS-rebinding host validation, rate limiting, and the
-domain-verification route. `test/live-financial-stress-monitor.test.js` is
+domain-verification route. `test/remote-app.test.js` covers the public
+`server-remote.js` app against a local upstream stand-in: tool discovery and
+the read-only surface, QNT queries, credential forwarding/isolation, cache
+partitioning, structured errors, timeouts, validation, rate limiting, host
+protection and log hygiene. `test/live-financial-stress-monitor.test.js` is
 opt-in and hits the real `https://e3d.ai/api`.

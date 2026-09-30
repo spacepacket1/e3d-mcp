@@ -26,14 +26,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { apiRequest, apiFetch, ok, okStructured } from "./lib/e3d-api.js";
-import {
-  shapeMacroSnapshot,
-  shapeMacroHistory,
-  shapeMacroCausalGraph,
-  GET_MACRO_SNAPSHOT_TOOL,
-  GET_MACRO_HISTORY_TOOL,
-  GET_MACRO_CAUSAL_GRAPH_TOOL,
-} from "./lib/financial-stress-monitor.js";
+import { READ_ONLY_TOOLS, registerReadOnlyTool } from "./lib/read-tools.js";
 
 // ---------------------------------------------------------------------------
 // Server
@@ -43,179 +36,6 @@ const server = new McpServer({
   name: "e3d-ai",
   version: "1.0.0",
 });
-
-// ── Market discovery ────────────────────────────────────────────────────────
-
-server.tool(
-  "get_token_prices",
-  "Fetch ERC-20 token prices with multi-range history. " +
-  "Sort by 30m, 1h, 24h, 7d, or 30d price change to find gainers/losers. " +
-  "Returns price, market cap, volume, and change % across all time ranges.",
-  {
-    sortBy:    z.enum(["change_30m_pct","change_1h_pct","change_24H","change_7d_pct","change_30d_pct","marketcap","volume_24h","price_usd"])
-                .default("change_30m_pct").describe("Sort field"),
-    sortDir:   z.enum(["desc","asc"]).default("desc").describe("Sort direction"),
-    limit:     z.number().int().min(1).max(200).default(50).describe("Max results"),
-    dataSource: z.number().int().default(1).describe("Data source ID (1 = mainnet)"),
-    search:    z.string().optional().describe("Filter by name or symbol"),
-  },
-  async ({ sortBy, sortDir, limit, dataSource, search }) => {
-    const data = await apiFetch("/fetchTokenPricesWithHistoryAllRanges", { sortBy, sortDir, limit, dataSource, search });
-    return ok(data);
-  }
-);
-
-server.tool(
-  "get_tokens",
-  "Query the E3D token database. Returns token metadata: name, symbol, address, " +
-  "market cap, liquidity, and fraud risk score. Use for discovery or symbol lookup.",
-  {
-    search:     z.string().optional().describe("Search by name, symbol, or address"),
-    limit:      z.number().int().min(1).max(200).default(50),
-    offset:     z.number().int().min(0).default(0),
-    dataSource: z.number().int().default(1),
-  },
-  async ({ search, limit, offset, dataSource }) => {
-    const data = await apiFetch("/fetchTokensDB", { search, limit, offset, dataSource });
-    return ok(data);
-  }
-);
-
-server.tool(
-  "get_transactions",
-  "Fetch recent Ethereum transactions indexed by E3D. " +
-  "Optionally filter by token address, wallet address, or text search.",
-  {
-    search:     z.string().optional().describe("Address, token, or text filter"),
-    limit:      z.number().int().min(1).max(100).default(25),
-    dataSource: z.number().int().default(1),
-  },
-  async ({ search, limit, dataSource }) => {
-    const data = await apiFetch("/fetchTransactionsDB", { search, limit, dataSource });
-    return ok(data);
-  }
-);
-
-// ── Per-token analysis ──────────────────────────────────────────────────────
-
-server.tool(
-  "get_address_meta",
-  "Get identity and metadata for an Ethereum address (token or wallet). " +
-  "Returns labels, tags, entity name, and known associations.",
-  {
-    address: z.string().describe("Lowercase 0x Ethereum address"),
-  },
-  async ({ address }) => {
-    const data = await apiFetch("/addressMeta", { address });
-    return ok(data);
-  }
-);
-
-server.tool(
-  "get_token_info",
-  "Get detailed token profile: supply, holders, contract info, social links, " +
-  "price history, and E3D-computed risk/quality scores.",
-  {
-    address: z.string().describe("Token contract address (0x...)"),
-  },
-  async ({ address }) => {
-    const data = await apiFetch(`/token-info/${encodeURIComponent(address)}`);
-    return ok(data);
-  }
-);
-
-server.tool(
-  "get_token_info_json",
-  "Get rich token info JSON including on-chain data, price history, holders, " +
-  "contract metadata, social links, and E3D-computed scores for a token.",
-  {
-    address: z.string().describe("Token contract address (0x...)"),
-    chain:   z.string().default("ETH").describe("Chain identifier, e.g. ETH"),
-  },
-  async ({ address, chain }) => {
-    const data = await apiFetch("/getTokenInfoJson", { address, chain });
-    return ok(data);
-  }
-);
-
-server.tool(
-  "get_agent_candidates",
-  "Get E3D agent's top-scored token candidates — tokens with converging on-chain signals " +
-  "across multiple story types. Joined with thesis when one exists. " +
-  "Fields include convergence_score, signal_count, story_types, direction_hint, signal_summary, " +
-  "thesis_conviction, entry/invalidation signals, price targets, fraud_risk, liquidity_quality.",
-  {
-    status: z.string().default("new,promoted,dismissed")
-              .describe("Comma-separated status filter: new, promoted, dismissed"),
-    limit:  z.number().int().min(1).max(200).default(25),
-  },
-  async ({ status, limit }) => {
-    const data = await apiFetch("/candidates", { status, limit });
-    return ok(data);
-  }
-);
-
-server.tool(
-  "get_theses",
-  "Get structured investment theses generated by the E3D agent. " +
-  "Each thesis includes: direction (long/short), conviction score, thesis text, " +
-  "entry/invalidation signals, price targets (target_1/2/3), invalidation_price, " +
-  "fraud_risk, liquidity_quality, slippage estimate, and time horizon. " +
-  "Filter by status: active, confirmed, or all.",
-  {
-    status: z.string().default("active")
-              .describe("Status filter: active | confirmed | all (or comma-separated)"),
-    limit:  z.number().int().min(1).max(200).default(10),
-  },
-  async ({ status, limit }) => {
-    const data = await apiFetch("/theses", { status, limit });
-    return ok(data);
-  }
-);
-
-server.tool(
-  "get_token_counterparties",
-  "Get the most frequent counterparty wallets for a token — who is trading with whom.",
-  {
-    token:  z.string().describe("Token contract address (0x...)"),
-    limit:  z.number().int().min(1).max(20).default(5),
-  },
-  async ({ token, limit }) => {
-    const data = await apiFetch("/tokenCounterparties", { token, limit });
-    return ok(data);
-  }
-);
-
-server.tool(
-  "get_address_counterparties",
-  "Get counterparty analysis for a wallet address — wallets it most frequently interacts with.",
-  {
-    address: z.string().describe("Wallet or contract address (0x...)"),
-    limit:   z.number().int().min(1).max(20).default(5),
-  },
-  async ({ address, limit }) => {
-    const data = await apiFetch("/addressCounterparties", { address, limit });
-    return ok(data);
-  }
-);
-
-// ── Stories search ──────────────────────────────────────────────────────────
-
-server.tool(
-  "search_stories",
-  "Search E3D on-chain stories by keyword, token symbol, or address. " +
-  "Stories are LLM-generated narratives derived from transaction graph patterns.",
-  {
-    q:      z.string().describe("Search query: address, symbol, or keywords"),
-    scope:  z.enum(["any","opportunity","risk"]).default("any"),
-    limit:  z.number().int().min(1).max(50).default(10),
-    offset: z.number().int().min(0).default(0),
-  },
-  async ({ q, scope, limit, offset }) => {
-    const data = await apiFetch("/stories", { q, scope, limit, offset });
-    return ok(data);
-  }
-);
 
 // ── Agent system ────────────────────────────────────────────────────────────
 
@@ -371,39 +191,6 @@ const SOCIALS_SHAPE = z.record(z.string(), z.string())
   .optional().describe("Social links, e.g. { \"x\": \"https://x.com/...\", \"telegram\": \"https://t.me/...\" }");
 
 server.tool(
-  "get_token_metadata",
-  "Get a token's full profile including its registry claim status. Returns identity/supply " +
-  "(EthNames), CoinGecko info, security scores, and a `claim` object — {claimed:false} if " +
-  "unclaimed, or claimant wallet, proof method (signature/deployer/owner_call), and " +
-  "owner-authored website/description/contact/socials if claimed.",
-  {
-    address: z.string().describe("Token contract address (0x...)"),
-  },
-  async ({ address }) => {
-    const data = await apiFetch(`/tokens/${encodeURIComponent(address)}/metadata`);
-    return ok(data);
-  }
-);
-
-server.tool(
-  "search_registry_tokens",
-  "Search the public directory of claimed tokens — team-verified projects with " +
-  "owner-authored metadata. Supports incremental sync via updatedSince (compare against the " +
-  "highest claim.claimedAt seen so far) and pagination via cursor/nextCursor.",
-  {
-    chain:        z.string().optional().describe("Filter by chain, e.g. ethereum or base"),
-    search:       z.string().optional().describe("Free-text match over address, name, symbol, claimant wallet, owner-authored fields"),
-    limit:        z.number().int().min(1).max(100).default(25),
-    cursor:       z.string().optional().describe("Opaque pagination cursor from a previous response's nextCursor"),
-    updatedSince: z.string().optional().describe("ISO-8601 timestamp — return only claims updated at or after this time"),
-  },
-  async ({ chain, search, limit, cursor, updatedSince }) => {
-    const data = await apiFetch("/registry/tokens", { claimed: true, chain, search, limit, cursor, updatedSince });
-    return ok(data);
-  }
-);
-
-server.tool(
   "get_wallet_claims",
   "List every token claim held by a wallet. Requires a sessionToken (short-lived bearer " +
   "token from POST /api/entitlements/challenge + /api/entitlements/verify — wallet-signature " +
@@ -477,58 +264,20 @@ server.tool(
   }
 );
 
-// ── Financial Stress Monitor (LiquidityWatch) ───────────────────────────────
-// Read-only wrappers around GET /financial-stress-monitor and its /history
-// sibling — the same public API liquiditywatch.e3d.ai's dashboard reads.
-// Shaping (schema_version normalization, risk-metric methodology caveat,
-// causal_graph optionality) *and* name/description/annotations/paramsSchema/
-// outputSchema live in lib/financial-stress-monitor.js so they're shared
-// byte-for-byte with server-http.js (the remote/ChatGPT-facing transport)
-// and covered by test/financial-stress-monitor.test.js without needing a
-// live server. registerTool (not the deprecated tool()) so outputSchema is
-// honored — see okStructured() in lib/e3d-api.js.
+// ── Shared read-only tools ──────────────────────────────────────────────────
+// Market/token/transaction/address/counterparty/story/analytics tools plus the
+// LiquidityWatch get_macro_* tools are defined once in lib/read-tools.js and
+// shared with the remote HTTP server (lib/remote-app.js). Here they run with
+// the process-wide E3D_API_KEY (ctx.apiKey undefined -> apiRequest default).
+// registerTool (not the deprecated tool()) so outputSchema is honored — see
+// okStructured() in lib/e3d-api.js.
 
-server.registerTool(
-  GET_MACRO_SNAPSHOT_TOOL.name,
-  {
-    description: GET_MACRO_SNAPSHOT_TOOL.description,
-    inputSchema: GET_MACRO_SNAPSHOT_TOOL.paramsSchema,
-    outputSchema: GET_MACRO_SNAPSHOT_TOOL.outputSchema,
-    annotations: GET_MACRO_SNAPSHOT_TOOL.annotations,
-  },
-  async () => {
-    const data = await apiFetch("/financial-stress-monitor");
-    return okStructured(shapeMacroSnapshot(data && data.event));
-  }
-);
-
-server.registerTool(
-  GET_MACRO_HISTORY_TOOL.name,
-  {
-    description: GET_MACRO_HISTORY_TOOL.description,
-    inputSchema: GET_MACRO_HISTORY_TOOL.paramsSchema,
-    outputSchema: GET_MACRO_HISTORY_TOOL.outputSchema,
-    annotations: GET_MACRO_HISTORY_TOOL.annotations,
-  },
-  async ({ limit }) => {
-    const data = await apiFetch("/financial-stress-monitor/history", { limit });
-    return okStructured(shapeMacroHistory(data));
-  }
-);
-
-server.registerTool(
-  GET_MACRO_CAUSAL_GRAPH_TOOL.name,
-  {
-    description: GET_MACRO_CAUSAL_GRAPH_TOOL.description,
-    inputSchema: GET_MACRO_CAUSAL_GRAPH_TOOL.paramsSchema,
-    outputSchema: GET_MACRO_CAUSAL_GRAPH_TOOL.outputSchema,
-    annotations: GET_MACRO_CAUSAL_GRAPH_TOOL.annotations,
-  },
-  async () => {
-    const data = await apiFetch("/financial-stress-monitor");
-    return okStructured(shapeMacroCausalGraph(data && data.event));
-  }
-);
+for (const tool of READ_ONLY_TOOLS) {
+  registerReadOnlyTool(server, tool, async (t, args) => {
+    const data = await t.handler(args, {});
+    return t.outputSchema ? okStructured(data) : ok(data);
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Start

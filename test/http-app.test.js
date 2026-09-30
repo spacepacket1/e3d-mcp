@@ -11,8 +11,6 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { createApp } from '../lib/http-app.js';
-import { clearApiCache } from '../lib/e3d-api.js';
 
 // A minimal upstream stand-in for https://e3d.ai/api - the app under test
 // doesn't take a baseUrl override (server-http.js reads E3D_API_BASE_URL at
@@ -42,17 +40,14 @@ async function startApp(appOptions = {}) {
 }
 
 // process.env.E3D_API_BASE_URL must be set BEFORE lib/e3d-api.js is first
-// imported anywhere in the process, since it reads it once at module load.
-// test/e3d-api.test.js and test/financial-stress-monitor.test.js don't rely
-// on it (they pass baseUrl per-call), so setting it here process-wide before
-// this file's own imports run is safe as long as this file is executed as
-// its own `node --test` invocation alongside the others - which the node
-// test runner does (each file is a separate worker/process).
-let mockUpstream;
-test.before(async () => {
-  mockUpstream = await startMockUpstream();
-  process.env.E3D_API_BASE_URL = mockUpstream.baseUrl;
-});
+// imported, since it reads it once at module load. Static `import`s are
+// hoisted above any statement, so the app modules are imported dynamically
+// here, after the mock upstream is up and the env var is set - otherwise
+// these tests silently hit the live https://e3d.ai/api.
+const mockUpstream = await startMockUpstream();
+process.env.E3D_API_BASE_URL = mockUpstream.baseUrl;
+const { createApp } = await import('../lib/http-app.js');
+const { clearApiCache } = await import('../lib/e3d-api.js');
 test.after(() => mockUpstream.server.close());
 
 // Node's `fetch` silently ignores an attempt to override the `Host` header
