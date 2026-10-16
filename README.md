@@ -340,3 +340,7 @@ the read-only surface, QNT queries, credential forwarding/isolation, cache
 partitioning, structured errors, timeouts, validation, rate limiting, host
 protection and log hygiene. `test/live-financial-stress-monitor.test.js` is
 opt-in and hits the real `https://e3d.ai/api`.
+
+## License
+
+[MIT](LICENSE) © 2026 FutCo LLC. Part of the [FutCo](https://futco.ai/projects) open-source ecosystem.
