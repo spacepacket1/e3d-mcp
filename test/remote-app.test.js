@@ -143,7 +143,8 @@ test('QNT can be queried through the remote MCP interface (symbol and address)',
     const tokens = JSON.parse(bySymbol.content[0].text);
     assert.equal(tokens[0].symbol, 'QNT');
     assert.equal(tokens[0].address, QNT_ADDRESS);
-    assert.deepEqual(upstreamCalls[0].query, { search: 'QNT', limit: '5', offset: '0', dataSource: '1' });
+    // get_tokens ranks by 24h volume by default; an exact QNT match is placed first server-side
+    assert.deepEqual(upstreamCalls[0].query, { search: 'QNT', sort: 'volume', limit: '5', offset: '0', dataSource: '1' });
 
     const info = await client.callTool({ name: 'get_token_info', arguments: { address: QNT_ADDRESS } });
     assert.equal(JSON.parse(info.content[0].text).symbol, 'QNT');
@@ -154,6 +155,17 @@ test('QNT can be queried through the remote MCP interface (symbol and address)',
     assert.ok(!tx.isError);
     const st = await client.callTool({ name: 'search_stories', arguments: { q: 'QNT' } });
     assert.match(st.content[0].text, /QNT accumulation/);
+    // search_stories asks the API for matching and compact summaries, and wraps them
+    const storiesCall = upstreamCalls.filter((c) => c.path === '/stories').pop();
+    assert.equal(storiesCall.query.match, '1');
+    assert.equal(storiesCall.query.compact, '1');
+    assert.equal(JSON.parse(st.content[0].text).count, 1);
+
+    // detail=true drops compact and caps the page at 3
+    await client.callTool({ name: 'search_stories', arguments: { q: 'QNT', detail: true, limit: 20 } });
+    const detailCall = upstreamCalls.filter((c) => c.path === '/stories').pop();
+    assert.equal(detailCall.query.compact, undefined);
+    assert.equal(detailCall.query.limit, '3');
     await client.close();
   });
 });
