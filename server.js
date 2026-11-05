@@ -89,7 +89,7 @@ server.tool(
                 .default("change_30m_pct").describe("Sort field"),
     sortDir:   z.enum(["desc","asc"]).default("desc").describe("Sort direction"),
     limit:     z.number().int().min(1).max(200).default(50).describe("Max results"),
-    dataSource: z.number().int().default(1).describe("Data source ID (1 = mainnet)"),
+    dataSource: z.number().int().default(1).describe("Data source: 1 = EVM chains (default), 3 = Solana, 99 = all chains"),
     search:    z.string().optional().describe("Filter by name or symbol"),
   },
   async ({ sortBy, sortDir, limit, dataSource, search }) => {
@@ -100,16 +100,22 @@ server.tool(
 
 server.tool(
   "get_tokens",
-  "Query the E3D token database. Returns token metadata: name, symbol, address, " +
-  "market cap, liquidity, and fraud risk score. Use for discovery or symbol lookup.",
+  "Query the E3D token database. Returns token metadata: name, symbol, address, price, " +
+  "market cap, liquidity, 24h volume, and fraud risk score. Use for discovery or symbol lookup. " +
+  "With no search the list is ranked by 24h volume (see sort) and tokens whose price cannot be trusted " +
+  "(fallback price source with no liquidity, or extreme_price_deviation) are left out. " +
+  "When searching they are kept but listed last; set includeAnomalous=true to list them in the unfiltered listing too.",
   {
     search:     z.string().optional().describe("Search by name, symbol, or address"),
+    sort:       z.enum(["volume","liquidity","marketcap","price","name"]).default("volume")
+                  .describe("Ranking: 24h USD volume (default), liquidity, market cap, price (descending) or symbol (A to Z)"),
+    includeAnomalous: z.boolean().default(false).describe("Also list tokens with untrustworthy prices (placed last)"),
     limit:      z.number().int().min(1).max(200).default(50),
     offset:     z.number().int().min(0).default(0),
-    dataSource: z.number().int().default(1),
+    dataSource: z.number().int().default(1).describe("Data source: 1 = EVM chains (default), 3 = Solana, 99 = all chains"),
   },
-  async ({ search, limit, offset, dataSource }) => {
-    const data = await apiFetch("/fetchTokensDB", { search, limit, offset, dataSource });
+  async ({ search, sort, includeAnomalous, limit, offset, dataSource }) => {
+    const data = await apiFetch("/fetchTokensDB", { search, sort, anomalies: includeAnomalous ? "sink" : undefined, limit, offset, dataSource });
     return ok(data);
   }
 );
@@ -121,7 +127,7 @@ server.tool(
   {
     search:     z.string().optional().describe("Address, token, or text filter"),
     limit:      z.number().int().min(1).max(100).default(25),
-    dataSource: z.number().int().default(1),
+    dataSource: z.number().int().default(1).describe("Data source: 1 = EVM chains (default), 3 = Solana, 99 = all chains"),
   },
   async ({ search, limit, dataSource }) => {
     const data = await apiFetch("/fetchTransactionsDB", { search, limit, dataSource });
@@ -236,16 +242,31 @@ server.tool(
 
 server.tool(
   "search_stories",
-  "Search E3D on-chain stories by keyword, token symbol, or address. " +
-  "Stories are LLM-generated narratives derived from transaction graph patterns.",
+  "Search E3D on-chain stories (LLM-generated narratives derived from transaction graph patterns). " +
+  "q matches story type, title, token address or symbol, and keywords; results are ranked by relevance, then recency. " +
+  "scope=risk or scope=opportunity keeps only risk-type or opportunity-type stories. " +
+  "Free-text matching covers recent stories (about the last 24 hours); an exact token address or story id is searched across the full history. " +
+  "Each result is a compact summary of about 2 KB or less (id, ts_created, story_type, chain, primary_token, title, subtitle, score, meta_summary). " +
+  "Pass detail=true for the full payload (graph nodes, edges, evidence), which can be 50 KB or more per story, so detail is limited to 3 stories per call; " +
+  "to expand one story, call again with q set to its id and detail=true. Information only, not investment advice.",
   {
-    q:      z.string().describe("Search query: address, symbol, or keywords"),
-    scope:  z.enum(["any","opportunity","risk"]).default("any"),
+    q:      z.string().describe("Search query: token address, symbol, story type (e.g. DISCOVERY), story id, or keywords"),
+    scope:  z.enum(["any","opportunity","risk"]).default("any").describe("Restrict to risk or opportunity story types"),
+    detail: z.boolean().default(false).describe("Return the full story payload instead of the compact summary (max 3 stories per call)"),
     limit:  z.number().int().min(1).max(50).default(10),
     offset: z.number().int().min(0).default(0),
   },
-  async ({ q, scope, limit, offset }) => {
-    const data = await apiFetch("/stories", { q, scope, limit, offset });
+  async ({ q, scope, detail, limit, offset }) => {
+    const capped = detail ? Math.min(limit, 3) : limit;
+    const stories = await apiFetch("/stories", { q, scope, limit: capped, offset, match: 1, compact: detail ? undefined : 1 });
+    const list = Array.isArray(stories) ? stories : [];
+    const data = { count: list.length, offset, detail, stories: list };
+    if (detail && limit > 3) data.note = "detail=true returns at most 3 stories per call.";
+    if (!list.length) {
+      data.note = "No stories matched. Free-text matching covers recent stories (about the last 24 hours); " +
+        "an exact token address or story id is searched across the full history. " +
+        "Try an address, a story type name such as DISCOVERY, or other keywords.";
+    }
     return ok(data);
   }
 );
