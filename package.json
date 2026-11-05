@@ -5,10 +5,14 @@
   "type": "module",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "start:http": "node server-http.js",
+    "start:remote": "node server-remote.js",
+    "test": "node --test \"test/*.test.js\""
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.10.2",
-    "ethers": "^5.7.2"
+    "ethers": "^5.7.2",
+    "express-rate-limit": "^8.3.2"
   }
 }
