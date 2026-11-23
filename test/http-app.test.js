@@ -100,7 +100,7 @@ test('lists exactly the 3 read-only financial-stress-monitor tools, none from th
   }
 });
 
-test('every tool carries readOnlyHint/destructiveHint/openWorldHint annotations', async () => {
+test('every tool carries a title and readOnlyHint/destructiveHint/openWorldHint annotations', async () => {
   clearApiCache();
   const { server, url } = await startApp();
   try {
@@ -110,6 +110,8 @@ test('every tool carries readOnlyHint/destructiveHint/openWorldHint annotations'
       assert.equal(tool.annotations?.readOnlyHint, true, `${tool.name} missing readOnlyHint`);
       assert.equal(tool.annotations?.destructiveHint, false, `${tool.name} missing destructiveHint`);
       assert.equal(tool.annotations?.openWorldHint, true, `${tool.name} missing openWorldHint`);
+      assert.equal(typeof tool.annotations?.title, 'string', `${tool.name} missing title`);
+      assert.ok(tool.annotations.title.length > 0, `${tool.name} has an empty title`);
     }
     await client.close();
   } finally {
